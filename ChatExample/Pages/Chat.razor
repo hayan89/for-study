@@ -1,0 +1,199 @@
+﻿@page "/chat"
+@using ChatExample.Models
+@using ChatExample.Services
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager NavigationManager
+@inject ChatService chatService
+@inject IJSRuntime jSRuntime
+@implements IAsyncDisposable
+
+<div class="container">
+    <div class="row">
+        <div class="col-12">
+            <h3>블레이저 채팅방</h3>
+            @if (!_isConnected)
+            {
+                <div class="alert alert-warning">
+                    연결 중...
+                </div>
+            }
+            else
+            {
+                <div class="form-group">
+                    <label>
+                        사용자 이름:
+                        <input @bind="userInput" class="form-control" />
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        메시지:
+                        <input @bind="messageInput" @bind:event="oninput" @onkeypress="HandleKeyPress" class="form-control" />
+                    </label>
+                </div>
+                <button class="btn btn-primary" @onclick="Send" disabled="@(!IsConnected || string.IsNullOrWhiteSpace(userInput) || string.IsNullOrWhiteSpace(messageInput))">
+                    전송
+                </button>
+            }
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="chat-box" @ref="messagesDiv" style="height: 400px; overflow-y: auto; border: 1px solid #dee2e6; padding: 10px; border-radius: 5px;">
+                @foreach (var message in messages)
+                {
+                    <div class="message @(message.Username == userInput ? "text-right" : "")">
+                        <div class="@(message.Username == userInput ? "own-message" : "other-message")">
+                            <div class="username">@message.Username</div>
+                            <div class="message-text">@message.Message</div>
+                            <div class="time">@message.Time</div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .message {
+        margin-bottom: 10px;
+    }
+
+    .own-message {
+        background-color: #dcf8c6;
+        padding: 8px;
+        border-radius: 10px;
+        display: inline-block;
+        max-width: 80%;
+        float: right;
+        clear: both;
+    }
+
+    .other-message {
+        background-color: #f1f0f0;
+        padding: 8px;
+        border-radius: 10px;
+        display: inline-block;
+        max-width: 80%;
+        float: left;
+        clear: both;
+    }
+
+    .username {
+        font-weight: bold;
+        font-size: 0.9em;
+    }
+
+    .message-text {
+        word-wrap: break-word;
+    }
+
+    .time {
+        font-size: 0.7em;
+        text-align: right;
+        color: #777;
+    }
+
+    .text-right {
+        text-align: right;
+    }
+
+    .chat-box::after {
+        content: "";
+        clear: both;
+        display: table;
+    }
+</style>
+
+@code {
+    private HubConnection hubConnection;
+    private List<ChatMessage> messages = new List<ChatMessage>();
+    private string userInput;
+    private string messageInput;
+    private bool _isConnected = false;
+    // Chat.razor의 @code 섹션에 추가
+    private ElementReference messagesDiv;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await ScrollToBottom();
+    }
+
+    private async Task ScrollToBottom()
+    {
+        await jSRuntime.InvokeVoidAsync("scrollToBottom", messagesDiv);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // 이미 연결되어 있으면 중복 연결 방지
+        if (hubConnection != null)
+        {
+            return;
+        }
+
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/chathub"))
+            .WithAutomaticReconnect() // 자동 재연결 추가
+            .Build();
+
+        hubConnection.On<string, string>("ReceiveMessage", async (user, message) =>
+        {
+            // ChatService에만 메시지 추가하고 그 결과를 가져오는 방식으로 변경
+            chatService.AddMessage(user, message);
+
+            // Dispatcher를 통해 UI 업데이트 처리
+            await InvokeAsync(() =>
+            {
+                messages = chatService.GetMessages().ToList();
+                StateHasChanged();
+            });
+        });
+
+        try
+        {
+            await hubConnection.StartAsync();
+            _isConnected = true;
+            // 기존 메시지 로드
+            messages = chatService.GetMessages().ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"연결 오류: {ex.Message}");
+        }
+    }
+
+
+    private async Task Send()
+    {
+        if (hubConnection is not null && !string.IsNullOrEmpty(userInput) && !string.IsNullOrEmpty(messageInput))
+        {
+            // 중복 전송 방지를 위한 임시 변수
+            string messageToSend = messageInput;
+            messageInput = string.Empty;
+
+            await hubConnection.SendAsync("SendMessage", userInput, messageToSend);
+        }
+    }
+
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await Send();
+        }
+    }
+
+    public bool IsConnected => hubConnection?.State == HubConnectionState.Connected;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}
