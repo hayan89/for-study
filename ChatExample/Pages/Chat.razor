@@ -139,10 +139,10 @@
             .WithAutomaticReconnect() // 자동 재연결 추가
             .Build();
 
-        hubConnection.On<string, string>("ReceiveMessage", async (user, message) =>
+        hubConnection.On<string, string, string>("ReceiveMessage", async (user, message, guid) =>
         {
             // ChatService에만 메시지 추가하고 그 결과를 가져오는 방식으로 변경
-            chatService.AddMessage(user, message);
+            chatService.AddMessage(user, message, guid);
 
             // Dispatcher를 통해 UI 업데이트 처리
             await InvokeAsync(() =>
@@ -174,7 +174,7 @@
             string messageToSend = messageInput;
             messageInput = string.Empty;
 
-            await hubConnection.SendAsync("SendMessage", userInput, messageToSend);
+            await hubConnection.SendAsync("SendMessage", userInput, messageToSend, Guid.NewGuid().ToString());
         }
     }
 

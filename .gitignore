@@ -5,3 +5,5 @@
 /.vs
 /ChatExample/.vs/ChatExample
 /ChatExample/bin/Debug/net7.0
+/ChatExample/bin
+/ChatExample/obj
